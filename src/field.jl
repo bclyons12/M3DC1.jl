@@ -19,13 +19,22 @@ const ni3 = n3 .+ 1
 const tmp = zeros(20)
 const val = zeros(20)
 
-function is_in_tri(localpos, a, b, c)
+function localpos(r, z, localphi, elm)
+    dr = r - elm.x
+    dz = z - elm.y
+    return @SVector[ dr * elm.co + dz * elm.sn - elm.b,
+                    -dr * elm.sn + dz * elm.co,
+                    localphi]
+end
+
+is_in_tri(lp, elm::Element) = is_in_tri(lp, elm.a, elm.b, elm.c)
+function is_in_tri(lp, a, b, c)
     small = (a + b + c) * 1e-4
-    (localpos[2] < 0 - small) && return false
-    (localpos[2] > c + small) && return false
-    x = 1.0 - localpos[2] / c
-    (localpos[1] < -b * x - small) && return false
-    (localpos[1] >  a * x + small) && return false
+    (lp[2] < 0 - small) && return false
+    (lp[2] > c + small) && return false
+    x = 1.0 - lp[2] / c
+    (lp[1] < -b * x - small) && return false
+    (lp[1] >  a * x + small) && return false
     return true
 end
 
@@ -42,95 +51,71 @@ function eval_field(name::String, fid::HDF5.File, slice::Int, r, z, phi=0.0; op:
 end
 
 function eval_field(name::String, tid::HDF5.Group, r, z, phi=0.0; op::Int=1)
-    mid = tid["mesh"]
-    elements = read(mid, "elements")
     field = read(tid["fields"], name)
-    is3D = read_attribute(mid, "3D") == 1
-    Nplanes = is3D ? read_attribute(mid, "nplanes") : 0
-    return eval_field(field, elements, r, z, phi; op, Nplanes)
+    mesh, Nplanes = read_mesh(tid)
+    return eval_field(field, mesh, r, z, phi; op, Nplanes)
 end
 
-function eval_field(field::Matrix{<:Real}, elements::Matrix{<:Real}, Rs::AbstractVector{<:Real}, Zs::AbstractVector{<:Real}, phi::Real=0.0; op::Int=1, Nplanes::Integer=0)
+function eval_field(field::Matrix{<:Real}, mesh::Vector{<:Element}, Rs::AbstractVector{<:Real}, Zs::AbstractVector{<:Real}, phi::Real=0.0; op::Int=1, Nplanes::Integer=0)
     Mr, Mz = LazyGrids.ndgrid(Rs, Zs)
-   return _eval_field(field, elements, Mr, Mz, phi; op, Nplanes)
+   return _eval_field(field, mesh, Mr, Mz, phi; op, Nplanes)
 end
 
-function eval_field(field::Matrix{<:Real}, elements::Matrix{<:Real}, Rs::AbstractVector{<:Real}, z::Real, phi::Real=0.0; op::Int=1, Nplanes::Integer=0)
+function eval_field(field::Matrix{<:Real}, mesh::Vector{<:Element}, Rs::AbstractVector{<:Real}, z::Real, phi::Real=0.0; op::Int=1, Nplanes::Integer=0)
     Zs = [z for _ in eachindex(Rs)]
-    return _eval_field(field, elements, Rs, Zs, phi; op, Nplanes)
+    return _eval_field(field, mesh, Rs, Zs, phi; op, Nplanes)
 end
 
-function eval_field(field::Matrix{<:Real}, elements::Matrix{<:Real}, r::Real, Zs::AbstractVector{<:Real}, phi::Real=0.0; op::Int=1, Nplanes::Integer=0)
+function eval_field(field::Matrix{<:Real}, mesh::Vector{<:Element}, r::Real, Zs::AbstractVector{<:Real}, phi::Real=0.0; op::Int=1, Nplanes::Integer=0)
     Rs = [r for _ in eachindex(Zs)]
-    return _eval_field(field, elements, Rs, Zs, phi; op, Nplanes)
+    return _eval_field(field, mesh, Rs, Zs, phi; op, Nplanes)
 end
-function eval_field2(field::Matrix{<:Real}, elements::Matrix{<:Real}, r::Real, Zs::AbstractVector{<:Real}, phi::Real=0.0; op::Int=1, Nplanes::Integer=0)
+function eval_field2(field::Matrix{<:Real}, mesh::Vector{<:Element}, r::Real, Zs::AbstractVector{<:Real}, phi::Real=0.0; op::Int=1, Nplanes::Integer=0)
     #Rs = [r for _ in eachindex(Zs)]
-    return _eval_field.(Ref(field), Ref(elements), r, Zs, phi; op, Nplanes)
+    return _eval_field.(Ref(field), Ref(mesh), r, Zs, phi; op, Nplanes)
 end
 
-function eval_field(field::Matrix{<:Real}, elements::Matrix{<:Real}, r::Real, z::Real, Phis::AbstractVector{<:Real}; op::Int=1, Nplanes::Integer=0)
+function eval_field(field::Matrix{<:Real}, mesh::Vector{<:Element}, r::Real, z::Real, Phis::AbstractVector{<:Real}; op::Int=1, Nplanes::Integer=0)
     Rs = @SVector[r]
     Zs = @SVector[z]
-    return _eval_field.(Ref(field), Ref(elements), Ref(Rs), Ref(Zs), Phis; op, Nplanes)
+    return _eval_field.(Ref(field), Ref(mesh), Ref(Rs), Ref(Zs), Phis; op, Nplanes)
 end
 
-function eval_field(field::Matrix{<:Real}, elements::Matrix{<:Real}, r::Real, z::Real, phi::Real=0.0; op::Int=1, Nplanes::Integer=0)
+function eval_field(field::Matrix{<:Real}, mesh::Vector{<:Element}, r::Real, z::Real, phi::Real=0.0; op::Int=1, Nplanes::Integer=0)
     Rs = @SVector[r]
     Zs = @SVector[z]
-    return _eval_field(field, elements, Rs, Zs, phi; op, Nplanes)[1]
+    return _eval_field(field, mesh, Rs, Zs, phi; op, Nplanes)[1]
 end
 
-function elm_data(i_data)
-    a, b, c, t, x, y, _, izone = @views i_data[1:8]
-    sn, co = sincos(t)
-    ab = a + b
-    x2 = x + ab * co
-    x3 = x + b * co - c * sn
-    y2 = y + ab * sn
-    y3 = y + b * sn + c * co
-
-    minr = min(x, x2, x3)
-    maxr = max(x, x2, x3)
-    minz = min(y, y2, y3)
-    maxz = max(y, y2, y3)
-    return a, b, c, t, x, y, izone, sn, co, minr, maxr, minz, maxz
-end
-
-function _eval_field(field::Matrix{<:Real}, elements::Matrix{<:Real}, Rs::AbstractArray, Zs::AbstractArray, phi::Real=0.0; op::Int=1, Nplanes::Integer=0)
+function _eval_field(field::Matrix{<:Real}, mesh::Vector{<:Element}, Rs::AbstractArray, Zs::AbstractArray, phi::Real=0.0; op::Int=1, Nplanes::Integer=0)
     @assert size(Rs) === size(Zs)
     Vs = zeros(size(Rs))
-    _, N = size(elements)
-    @inbounds for i in 1:N
-        @views i_data = elements[:, i]
+    i = 0
+    N = length(mesh)
+    while i < N
+        i += 1 # here so continue is handled properly
+        elm = mesh[i]
 
         if Nplanes > 0
-            id = i_data[9]
-            iphi = i_data[10]
-            localphi = phi - iphi
-            if (localphi < 0) || (localphi > id)
+            localphi = phi - elm.iphi
+            if (localphi < 0) || (localphi > elm.id)
                 # this assumes elements are ordered by plane
-                i = i + N ÷ Nplanes
+                i = i + N ÷ Nplanes - 1
                 continue
             end
         else
             localphi = zero(phi)
         end
 
-        a, b, c, t, x, y, izone, sn, co, minr, maxr, minz, maxz = elm_data(i_data)
-
         for k in eachindex(Vs)
+            (Vs[k] != 0.0) && continue
             @inbounds z = Zs[k]
-            ((z > maxz) || (z < minz)) && continue
+            ((z > elm.maxz) || (z < elm.minz)) && continue
             @inbounds r = Rs[k]
-            ((r > maxr) ||  (r < minr)) && continue
-            dr = r - x
-            dz = z - y
-            localpos = @SVector[ dr * co + dz * sn - b,
-                                -dr * sn + dz * co,
-                                localphi]
-            if is_in_tri(localpos, a, b, c)
-                Vs[k] = eval(field, localpos, t, i; Nplanes, izone, op, sn, co)
+            ((r > elm.maxr) ||  (r < elm.minr)) && continue
+            lp = localpos(r, z, localphi, elm)
+            if is_in_tri(lp, elm)
+                Vs[k] = eval(field, lp, elm.t, i; Nplanes, elm.izone, op, elm.sn, elm.co)
             end
 
         end
@@ -138,46 +123,42 @@ function _eval_field(field::Matrix{<:Real}, elements::Matrix{<:Real}, Rs::Abstra
     return Vs
 end
 
-function _eval_field(field::Matrix{<:Real}, elements::Matrix{<:Real}, r::Real, z::Real, phi::Real=0.0; op::Int=1, Nplanes::Integer=0)
-    _, N = size(elements)
+function _eval_field(field::Matrix{<:Real}, mesh::Vector{<:Element}, r::Real, z::Real, phi::Real=0.0; op::Int=1, Nplanes::Integer=0)
     val = zero(promote_type(typeof(r), typeof(z), typeof(phi)))
-    @inbounds for i in 1:N
-        @views i_data = elements[:, i]
+    i = 0
+    N = length(mesh)
+    while i < N
+        i += 1 # here so continue is handled properly
+        elm = mesh[i]
 
         if Nplanes > 0
-            id = i_data[9]
-            iphi = i_data[10]
-            localphi = phi - iphi
-            if (localphi < 0) || (localphi > id)
+            localphi = phi - elm.iphi
+            if (localphi < 0) || (localphi > elm.id)
                 # this assumes elements are ordered by plane
-                i = i + N ÷ Nplanes
+                i = i + N ÷ Nplanes - 1
                 continue
             end
         else
             localphi = zero(phi)
         end
 
-        a, b, c, t, x, y, izone, sn, co, minr, maxr, minz, maxz = elm_data(i_data)
+        ((z > elm.maxz) || (z < elm.minz)) && continue
+        ((r > elm.maxr) || (r < elm.minr)) && continue
 
-        ((z > maxz) || (z < minz)) && continue
-        ((r > maxr) ||  (r < minr)) && continue
-        dr = r - x
-        dz = z - y
-        localpos = @SVector[ dr * co + dz * sn - b,
-                            -dr * sn + dz * co,
-                            localphi]
-        if is_in_tri(localpos, a, b, c)
-            val = eval(field, localpos, t, i; Nplanes, izone, op, sn, co)
+        lp = localpos(r, z, localphi, elm)
+        if is_in_tri(lp, elm)
+            val = eval(field, lp, elm.t, i; Nplanes, elm.izone, op, elm.sn, elm.co)
+            break
         end
     end
     return val
 end
 
 
-function eval(field, localpos, t, ielm; Nplanes = 0, izone=1, op=1, sn = sin(t), co = cos(t))
+function eval(field, lp, t, ielm; Nplanes = 0, izone=1, op=1, sn = sin(t), co = cos(t))
 
-    lp1 = @SVector[1., localpos[1], localpos[1]^2, localpos[1]^3, localpos[1]^4, localpos[1]^5]
-    lp2 = @SVector[1., localpos[2], localpos[2]^2, localpos[2]^3, localpos[2]^4, localpos[2]^5]
+    lp1 = @SVector[1., lp[1], lp[1]^2, lp[1]^3, lp[1]^4, lp[1]^5]
+    lp2 = @SVector[1., lp[2], lp[2]^2, lp[2]^3, lp[2]^4, lp[2]^5]
     op2 = (op - 1) ÷ 10
     op1 = op - 10 * op2
 
@@ -220,18 +201,18 @@ function eval(field, localpos, t, ielm; Nplanes = 0, izone=1, op=1, sn = sin(t),
 
     is3D = (Nplanes > 0)
     if op2 == 0
-        @views @. val = field[1:20, ielm] + is3D * (field[21:40, ielm] * localpos[3] +
-                                                    field[41:60, ielm] * localpos[3] ^ 2 +
-                                                    field[61:80, ielm] * localpos[3] ^ 3)
+        @views @. val = field[1:20, ielm] + is3D * (field[21:40, ielm] * lp[3] +
+                                                    field[41:60, ielm] * lp[3] ^ 2 +
+                                                    field[61:80, ielm] * lp[3] ^ 3)
         tot = sum(val[k] * tmp[k] for k in 1:20)
     elseif op2 == 1 && is3D
         @views @. val = field[21:40, ielm] +
-                        field[41:60, ielm] * localpos[3] * 2.0 +
-                        field[61:80, ielm] * (localpos[3] ^ 2) * 3.0
+                        field[41:60, ielm] * lp[3] * 2.0 +
+                        field[61:80, ielm] * (lp[3] ^ 2) * 3.0
         tot = sum(val[k] * tmp[k] for k in 1:20)
     elseif op2 == 2 && is3D
         @views @. val = field[41:60, ielm] * 2.0 +
-                        field[61:80, ielm] * localpos[3] * 6.0
+                        field[61:80, ielm] * lp[3] * 6.0
         tot = sum(val[k] * tmp[k] for k in 1:20)
     else
         tot = zero(eltype(tmp))
