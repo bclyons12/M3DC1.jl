@@ -1,5 +1,12 @@
+__precompile__()
 module M3DC1
 
-# Write your package code here.
+using HDF5
+using StaticArrays
+using LazyGrids
+using Plots
+
+include("field.jl")
+export eval_field
 
 end
