@@ -14,7 +14,7 @@ function parametric_point(L::Line, t::Real)
     return r, z, φ
 end
 
-function length(L::Line)
+function Base.length(L::Line)
     x1 = L.r1 * cos(L.φ1)
     y1 = L.r1 * sin(L.φ1)
     x2 = L.r2 * cos(L.φ2)
