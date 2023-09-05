@@ -8,9 +8,12 @@ using RecipesBase
 const RZsize = (800,600)
 
 include("mesh.jl")
-export BBtree, BBnode, find_sibling, insert, read_mesh
+export BBtree, read_mesh, find_element
 
 include("field.jl")
 export eval_field
+
+include("line.jl")
+export Line, line_integral
 
 end

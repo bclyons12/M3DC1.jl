@@ -41,8 +41,12 @@ function eval_field(name::String, fid::HDF5.File, slice::Int, r, z, φ=0.0; op::
 end
 
 function eval_field(name::String, tid::HDF5.Group, r, z, φ=0.0; op::Int=1)
-    field = read(tid["fields"], name)
     meshtree = BBtree(read_mesh(tid)...)
+    return eval_field(name, meshtree, r, z, φ; op)
+end
+
+function eval_field(name::String, tid::HDF5.Group, meshtree::BBtree, r, z, φ=0.0; op::Int=1)
+    field = read(tid["fields"], name)
     return eval_field(field, meshtree, r, z, φ; op)
 end
 
