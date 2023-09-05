@@ -19,77 +19,72 @@ const ni3 = n3 .+ 1
 const tmp = zeros(20)
 const val = zeros(20)
 
-function localpos(r, z, localphi, elm)
-    dr = r - elm.x
-    dz = z - elm.y
-    return @SVector[ dr * elm.co + dz * elm.sn - elm.b,
-                    -dr * elm.sn + dz * elm.co,
-                    localphi]
+const coordinate_types{T<:Real} = Union{Real, AbstractArray{<:Real}}
+mutable struct Field{C1<:Union{Real, AbstractArray{<:Real}}, C2<:Union{Real, AbstractArray{<:Real}},
+                     C3<:Union{Real, AbstractArray{<:Real}}, AAR<:AbstractArray{<:Real}}
+    r :: C1
+    z :: C2
+    φ :: C3
+    value :: AAR
 end
 
-is_in_tri(lp, elm::Element) = is_in_tri(lp, elm.a, elm.b, elm.c)
-function is_in_tri(lp, a, b, c)
-    small = (a + b + c) * 1e-4
-    (lp[2] < 0 - small) && return false
-    (lp[2] > c + small) && return false
-    x = 1.0 - lp[2] / c
-    (lp[1] < -b * x - small) && return false
-    (lp[1] >  a * x + small) && return false
-    return true
-end
-
-function eval_field(name::String, filename::String, slice::Int, r, z, phi=0.0; op::Int=1)
+function eval_field(name::String, filename::String, slice::Int, r, z, φ=0.0; op::Int=1)
     fid = h5open(filename, "r")
-    val = eval_field(name, fid, slice, r, z, phi; op)
+    val = eval_field(name, fid, slice, r, z, φ; op)
     close(fid)
     return val
 end
 
-function eval_field(name::String, fid::HDF5.File, slice::Int, r, z, phi=0.0; op::Int=1)
+function eval_field(name::String, fid::HDF5.File, slice::Int, r, z, φ=0.0; op::Int=1)
     tid = fid[(slice == -1) ? "equilibrium" : "time_" * lpad(slice,3,"0")]
-    return eval_field(name, tid, r, z, phi; op)
+    return eval_field(name, tid, r, z, φ; op)
 end
 
-function eval_field(name::String, tid::HDF5.Group, r, z, phi=0.0; op::Int=1)
+function eval_field(name::String, tid::HDF5.Group, r, z, φ=0.0; op::Int=1)
     field = read(tid["fields"], name)
     mesh, Nplanes = read_mesh(tid)
-    return eval_field(field, mesh, r, z, phi; op, Nplanes)
+    return eval_field(field, mesh, r, z, φ; op, Nplanes)
 end
 
-function eval_field(field::Matrix{<:Real}, mesh::Vector{<:Element}, Rs::AbstractVector{<:Real}, Zs::AbstractVector{<:Real}, phi::Real=0.0; op::Int=1, Nplanes::Integer=0)
-    Mr, Mz = LazyGrids.ndgrid(Rs, Zs)
-   return _eval_field(field, mesh, Mr, Mz, phi; op, Nplanes)
+# r, z, and φ all vectors
+function eval_field(field::Matrix{<:Real}, mesh::Vector{<:Element}, Rs::AbstractVector{<:Real}, Zs::AbstractVector{<:Real}, Φs::AbstractVector{<:Real}; op::Int=1, Nplanes::Integer=0)
+    return Field(Rs, Zs, Φs, [_eval_field(field, mesh, r, z, φ; op, Nplanes) for φ in Φs, z in Zs, r in Rs])
 end
 
-function eval_field(field::Matrix{<:Real}, mesh::Vector{<:Element}, Rs::AbstractVector{<:Real}, z::Real, phi::Real=0.0; op::Int=1, Nplanes::Integer=0)
-    Zs = [z for _ in eachindex(Rs)]
-    return _eval_field(field, mesh, Rs, Zs, phi; op, Nplanes)
+# Two of r, z, and φ are vectors
+function eval_field(field::Matrix{<:Real}, mesh::Vector{<:Element}, Rs::AbstractVector{<:Real}, Zs::AbstractVector{<:Real}, φ::Real=0.0; op::Int=1, Nplanes::Integer=0)
+    return Field(Rs, Zs, φ, [_eval_field(field, mesh, r, z, φ; op, Nplanes) for z in Zs, r in Rs])
 end
 
-function eval_field(field::Matrix{<:Real}, mesh::Vector{<:Element}, r::Real, Zs::AbstractVector{<:Real}, phi::Real=0.0; op::Int=1, Nplanes::Integer=0)
-    Rs = [r for _ in eachindex(Zs)]
-    return _eval_field(field, mesh, Rs, Zs, phi; op, Nplanes)
-end
-function eval_field2(field::Matrix{<:Real}, mesh::Vector{<:Element}, r::Real, Zs::AbstractVector{<:Real}, phi::Real=0.0; op::Int=1, Nplanes::Integer=0)
-    #Rs = [r for _ in eachindex(Zs)]
-    return _eval_field.(Ref(field), Ref(mesh), r, Zs, phi; op, Nplanes)
+function eval_field(field::Matrix{<:Real}, mesh::Vector{<:Element}, Rs::AbstractVector{<:Real}, z::Real, Φs::AbstractVector{<:Real}; op::Int=1, Nplanes::Integer=0)
+    return Field(Rs, z, Φs, [_eval_field(field, mesh, r, z, φ; op, Nplanes) for φ in Φs, r in Rs])
 end
 
-function eval_field(field::Matrix{<:Real}, mesh::Vector{<:Element}, r::Real, z::Real, Phis::AbstractVector{<:Real}; op::Int=1, Nplanes::Integer=0)
-    Rs = @SVector[r]
-    Zs = @SVector[z]
-    return _eval_field.(Ref(field), Ref(mesh), Ref(Rs), Ref(Zs), Phis; op, Nplanes)
+function eval_field(field::Matrix{<:Real}, mesh::Vector{<:Element}, r::Real, Zs::AbstractVector{<:Real}, Φs::AbstractVector{<:Real}; op::Int=1, Nplanes::Integer=0)
+    return Field(r, Zs, Φs, [_eval_field(field, mesh, r, z, φ; op, Nplanes) for φ in Φs, z in Zs])
 end
 
-function eval_field(field::Matrix{<:Real}, mesh::Vector{<:Element}, r::Real, z::Real, phi::Real=0.0; op::Int=1, Nplanes::Integer=0)
-    Rs = @SVector[r]
-    Zs = @SVector[z]
-    return _eval_field(field, mesh, Rs, Zs, phi; op, Nplanes)[1]
+# One of r, z, and φ is a vector
+function eval_field(field::Matrix{<:Real}, mesh::Vector{<:Element}, Rs::AbstractVector{<:Real}, z::Real, φ::Real=0.0; op::Int=1, Nplanes::Integer=0)
+    return Field(Rs, z, φ, _eval_field.(Ref(field), Ref(mesh), Rs, z, φ; op, Nplanes))
 end
 
-function _eval_field(field::Matrix{<:Real}, mesh::Vector{<:Element}, Rs::AbstractArray, Zs::AbstractArray, phi::Real=0.0; op::Int=1, Nplanes::Integer=0)
-    @assert size(Rs) === size(Zs)
-    Vs = zeros(size(Rs))
+function eval_field(field::Matrix{<:Real}, mesh::Vector{<:Element}, r::Real, Zs::AbstractVector{<:Real}, φ::Real=0.0; op::Int=1, Nplanes::Integer=0)
+    return Field(r, Zs, φ, _eval_field.(Ref(field), Ref(mesh), r, Zs, φ; op, Nplanes))
+end
+
+function eval_field(field::Matrix{<:Real}, mesh::Vector{<:Element}, r::Real, z::Real, Φs::AbstractVector{<:Real}; op::Int=1, Nplanes::Integer=0)
+    return Field(r, z, Φs, _eval_field.(Ref(field), Ref(mesh), r, z, Φs; op, Nplanes))
+end
+
+# r, z, and φ are all scalars
+
+function eval_field(field::Matrix{<:Real}, mesh::Vector{<:Element}, r::Real, z::Real, φ::Real=0.0; op::Int=1, Nplanes::Integer=0)
+    return Field(r, z, φ, _eval_field(field, mesh, r, z, φ; op, Nplanes))
+end
+
+function _eval_field(field::Matrix{<:Real}, mesh::Vector{<:Element}, r::Real, z::Real, φ::Real=0.0; op::Int=1, Nplanes::Integer=0)
+    val = zero(promote_type(typeof(r), typeof(z), typeof(φ)))
     i = 0
     N = length(mesh)
     while i < N
@@ -97,55 +92,20 @@ function _eval_field(field::Matrix{<:Real}, mesh::Vector{<:Element}, Rs::Abstrac
         elm = mesh[i]
 
         if Nplanes > 0
-            localphi = phi - elm.iphi
-            if (localphi < 0) || (localphi > elm.id)
+            localφ = φ - elm.iφ
+            if (localφ < 0) || (localφ > elm.id)
                 # this assumes elements are ordered by plane
                 i = i + N ÷ Nplanes - 1
                 continue
             end
         else
-            localphi = zero(phi)
-        end
-
-        for k in eachindex(Vs)
-            (Vs[k] != 0.0) && continue
-            @inbounds z = Zs[k]
-            ((z > elm.maxz) || (z < elm.minz)) && continue
-            @inbounds r = Rs[k]
-            ((r > elm.maxr) ||  (r < elm.minr)) && continue
-            lp = localpos(r, z, localphi, elm)
-            if is_in_tri(lp, elm)
-                Vs[k] = eval(field, lp, elm.t, i; Nplanes, elm.izone, op, elm.sn, elm.co)
-            end
-
-        end
-    end
-    return Vs
-end
-
-function _eval_field(field::Matrix{<:Real}, mesh::Vector{<:Element}, r::Real, z::Real, phi::Real=0.0; op::Int=1, Nplanes::Integer=0)
-    val = zero(promote_type(typeof(r), typeof(z), typeof(phi)))
-    i = 0
-    N = length(mesh)
-    while i < N
-        i += 1 # here so continue is handled properly
-        elm = mesh[i]
-
-        if Nplanes > 0
-            localphi = phi - elm.iphi
-            if (localphi < 0) || (localphi > elm.id)
-                # this assumes elements are ordered by plane
-                i = i + N ÷ Nplanes - 1
-                continue
-            end
-        else
-            localphi = zero(phi)
+            localφ = zero(φ)
         end
 
         ((z > elm.maxz) || (z < elm.minz)) && continue
         ((r > elm.maxr) || (r < elm.minr)) && continue
 
-        lp = localpos(r, z, localphi, elm)
+        lp = localpos(r, z, localφ, elm)
         if is_in_tri(lp, elm)
             val = eval(field, lp, elm.t, i; Nplanes, elm.izone, op, elm.sn, elm.co)
             break
