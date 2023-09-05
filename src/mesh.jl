@@ -228,6 +228,7 @@ struct BBtree{T}
     root::Int
     tree::Vector{BBnode{T}}
     mesh::Vector{Element{T}}
+    Nplanes::Int
 end
 
 function BBtree(mesh::Vector{Element{T}}, Nplanes=0) where {T <: Real}
@@ -245,9 +246,8 @@ function BBtree(mesh::Vector{Element{T}}, Nplanes=0) where {T <: Real}
         best, _ = find_sibling(tree, root, leaf)
         insert(tree, k, best, leaf)
         (best == root) && (root = k)
-        #println(best)
     end
-    return BBtree(root, tree, mesh)
+    return BBtree(root, tree, mesh, Int(Nplanes))
 end
 
 contains(node::BBnode, r, z) = (node.minr <= r <= node.maxr) && (node.minz <= z <= node.maxz)
@@ -272,7 +272,8 @@ function find_element(meshtree::BBtree, r::Real, z::Real, φ::Real=0.0, Nplanes:
         end
     end
 
-    return find_element(meshtree, meshtree.root, r, z, localφ) + offset
+    k = find_element(meshtree, meshtree.root, r, z, localφ)
+    return (k == 0 ? 0 : k + offset), localφ
 end
 
 function find_element(meshtree::BBtree, k::Integer, r::Real, z::Real, localφ::Real=0.0)

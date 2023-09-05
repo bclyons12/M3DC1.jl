@@ -42,74 +42,57 @@ end
 
 function eval_field(name::String, tid::HDF5.Group, r, z, φ=0.0; op::Int=1)
     field = read(tid["fields"], name)
-    mesh, Nplanes = read_mesh(tid)
-    return eval_field(field, mesh, r, z, φ; op, Nplanes)
+    meshtree = BBtree(read_mesh(tid)...)
+    return eval_field(field, meshtree, r, z, φ; op)
 end
 
 # r, z, and φ all vectors
-function eval_field(field::Matrix{<:Real}, mesh::Vector{<:Element}, Rs::AbstractVector{<:Real}, Zs::AbstractVector{<:Real}, Φs::AbstractVector{<:Real}; op::Int=1, Nplanes::Integer=0)
-    return Field(Rs, Zs, Φs, [_eval_field(field, mesh, r, z, φ; op, Nplanes) for φ in Φs, z in Zs, r in Rs])
+function eval_field(field::Matrix{<:Real}, meshtree::BBtree, Rs::AbstractVector{<:Real}, Zs::AbstractVector{<:Real}, Φs::AbstractVector{<:Real}; op::Int=1)
+    return Field(Rs, Zs, Φs, [_eval_field(field, meshtree, r, z, φ; op) for φ in Φs, z in Zs, r in Rs])
 end
 
 # Two of r, z, and φ are vectors
-function eval_field(field::Matrix{<:Real}, mesh::Vector{<:Element}, Rs::AbstractVector{<:Real}, Zs::AbstractVector{<:Real}, φ::Real=0.0; op::Int=1, Nplanes::Integer=0)
-    return Field(Rs, Zs, φ, [_eval_field(field, mesh, r, z, φ; op, Nplanes) for z in Zs, r in Rs])
+function eval_field(field::Matrix{<:Real}, meshtree::BBtree, Rs::AbstractVector{<:Real}, Zs::AbstractVector{<:Real}, φ::Real=0.0; op::Int=1)
+    return Field(Rs, Zs, φ, [_eval_field(field, meshtree, r, z, φ; op) for z in Zs, r in Rs])
 end
 
-function eval_field(field::Matrix{<:Real}, mesh::Vector{<:Element}, Rs::AbstractVector{<:Real}, z::Real, Φs::AbstractVector{<:Real}; op::Int=1, Nplanes::Integer=0)
-    return Field(Rs, z, Φs, [_eval_field(field, mesh, r, z, φ; op, Nplanes) for φ in Φs, r in Rs])
+function eval_field(field::Matrix{<:Real}, meshtree::BBtree, Rs::AbstractVector{<:Real}, z::Real, Φs::AbstractVector{<:Real}; op::Int=1)
+    return Field(Rs, z, Φs, [_eval_field(field, meshtree, r, z, φ; op) for φ in Φs, r in Rs])
 end
 
-function eval_field(field::Matrix{<:Real}, mesh::Vector{<:Element}, r::Real, Zs::AbstractVector{<:Real}, Φs::AbstractVector{<:Real}; op::Int=1, Nplanes::Integer=0)
-    return Field(r, Zs, Φs, [_eval_field(field, mesh, r, z, φ; op, Nplanes) for φ in Φs, z in Zs])
+function eval_field(field::Matrix{<:Real}, meshtree::BBtree, r::Real, Zs::AbstractVector{<:Real}, Φs::AbstractVector{<:Real}; op::Int=1)
+    return Field(r, Zs, Φs, [_eval_field(field, meshtree, r, z, φ; op) for φ in Φs, z in Zs])
 end
 
 # One of r, z, and φ is a vector
-function eval_field(field::Matrix{<:Real}, mesh::Vector{<:Element}, Rs::AbstractVector{<:Real}, z::Real, φ::Real=0.0; op::Int=1, Nplanes::Integer=0)
-    return Field(Rs, z, φ, _eval_field.(Ref(field), Ref(mesh), Rs, z, φ; op, Nplanes))
+function eval_field(field::Matrix{<:Real}, meshtree::BBtree, Rs::AbstractVector{<:Real}, z::Real, φ::Real=0.0; op::Int=1)
+    return Field(Rs, z, φ, _eval_field.(Ref(field), Ref(meshtree), Rs, z, φ; op))
 end
 
-function eval_field(field::Matrix{<:Real}, mesh::Vector{<:Element}, r::Real, Zs::AbstractVector{<:Real}, φ::Real=0.0; op::Int=1, Nplanes::Integer=0)
-    return Field(r, Zs, φ, _eval_field.(Ref(field), Ref(mesh), r, Zs, φ; op, Nplanes))
+function eval_field(field::Matrix{<:Real}, meshtree::BBtree, r::Real, Zs::AbstractVector{<:Real}, φ::Real=0.0; op::Int=1)
+    return Field(r, Zs, φ, _eval_field.(Ref(field), Ref(meshtree), r, Zs, φ; op))
 end
 
-function eval_field(field::Matrix{<:Real}, mesh::Vector{<:Element}, r::Real, z::Real, Φs::AbstractVector{<:Real}; op::Int=1, Nplanes::Integer=0)
-    return Field(r, z, Φs, _eval_field.(Ref(field), Ref(mesh), r, z, Φs; op, Nplanes))
+function eval_field(field::Matrix{<:Real}, meshtree::BBtree, r::Real, z::Real, Φs::AbstractVector{<:Real}; op::Int=1)
+    return Field(r, z, Φs, _eval_field.(Ref(field), Ref(meshtree), r, z, Φs; op))
 end
 
 # r, z, and φ are all scalars
 
-function eval_field(field::Matrix{<:Real}, mesh::Vector{<:Element}, r::Real, z::Real, φ::Real=0.0; op::Int=1, Nplanes::Integer=0)
-    return Field(r, z, φ, _eval_field(field, mesh, r, z, φ; op, Nplanes))
+function eval_field(field::Matrix{<:Real}, meshtree::BBtree, r::Real, z::Real, φ::Real=0.0; op::Int=1)
+    return Field(r, z, φ, @SVector[_eval_field(field, meshtree, r, z, φ; op)])
 end
 
-function _eval_field(field::Matrix{<:Real}, mesh::Vector{<:Element}, r::Real, z::Real, φ::Real=0.0; op::Int=1, Nplanes::Integer=0)
+function _eval_field(field::Matrix{<:Real}, meshtree::BBtree, r::Real, z::Real, φ::Real=0.0; op::Int=1)
     val = zero(promote_type(typeof(r), typeof(z), typeof(φ)))
-    i = 0
-    N = length(mesh)
-    while i < N
-        i += 1 # here so continue is handled properly
-        elm = mesh[i]
 
-        if Nplanes > 0
-            localφ = φ - elm.iφ
-            if (localφ < 0) || (localφ > elm.id)
-                # this assumes elements are ordered by plane
-                i = i + N ÷ Nplanes - 1
-                continue
-            end
-        else
-            localφ = zero(φ)
-        end
-
-        ((z > elm.maxz) || (z < elm.minz)) && continue
-        ((r > elm.maxr) || (r < elm.minr)) && continue
-
+    i, localφ = find_element(meshtree, r, z, φ, meshtree.Nplanes)
+    if i == 0
+        val = 0.0
+    else
+        elm = meshtree.mesh[i]
         lp = localpos(r, z, localφ, elm)
-        if is_in_tri(lp, elm)
-            val = eval(field, lp, elm.t, i; Nplanes, elm.izone, op, elm.sn, elm.co)
-            break
-        end
+        val = eval(field, lp, elm.t, i; meshtree.Nplanes, elm.izone, op, elm.sn, elm.co)
     end
     return val
 end
