@@ -39,8 +39,6 @@ function is_in_tri(lp, a, b, c)
     return true
 end
 
-
-
 mutable struct BBnode{T<:Real}
     index::Int
     parent::Int
@@ -270,7 +268,7 @@ function find_element(meshtree::BBtree{T}, r::Real, z::Real, φ::Real=0.0) where
                 offset += Np
             end
         end
-        @assert offset < N
+	(offset >= N) && throw(ErrorException("$φ is not found in meshtree for some reason"))	   
     end
 
     k = find_element(meshtree, meshtree.root, r, z, localφ)
