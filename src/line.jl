@@ -7,6 +7,8 @@ struct Line{T}
     z2::T
 end
 
+Line(r1, φ1, z1, r2, φ2, z2) = Line(promote(r1, φ1, z1, r2, φ2, z2)...)
+
 function parametric_point(L::Line, t::Real)
     r = L.r1 + (L.r2 - L.r1) * t
     z = L.z1 + (L.z2 - L.z1) * t

@@ -90,7 +90,7 @@ end
 function _eval_field(field::Matrix{<:Real}, meshtree::BBtree, r::Real, z::Real, φ::Real=0.0; op::Int=1)
     val = zero(promote_type(typeof(r), typeof(z), typeof(φ)))
 
-    i, localφ = find_element(meshtree, r, z, φ, meshtree.Nplanes)
+    i, localφ = find_element(meshtree, r, z, φ)
     if i == 0
         val = 0.0
     else
