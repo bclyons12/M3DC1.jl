@@ -252,7 +252,7 @@ end
 
 contains(node::BBnode, r, z) = (node.minr <= r <= node.maxr) && (node.minz <= z <= node.maxz)
 
-function find_element(meshtree::BBtree, r::Real, z::Real, φ::Real=0.0)
+function find_element(meshtree::BBtree{T}, r::Real, z::Real, φ::Real=0.0) where {T <: Real}
 
     # get on proper plane
     offset = 0
@@ -262,7 +262,7 @@ function find_element(meshtree::BBtree, r::Real, z::Real, φ::Real=0.0)
         Np = N ÷ meshtree.Nplanes
         while offset < N
             elm = meshtree.mesh[offset+1]
-            localφ = φ - elm.iφ
+            localφ = T(φ) - elm.iφ
             if 0 <= localφ <= elm.id
                 break
             else
